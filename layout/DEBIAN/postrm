@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# 干净卸载: 移除时清理偏好设置 plist。
+# 升级时 dpkg 传入的是 upgrade (而非 remove/purge), 不会触发清理, 配置安全保留。
+if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
+    rm -f /var/mobile/Library/Preferences/com.82flex.trollvnc.plist
+fi
+exit 0
