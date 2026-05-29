@@ -211,3 +211,48 @@ jobs:
           files: release-packages/**/*
           draft: false
           prerelease: false
+
+  # 把 rootless deb 推送到统一 Sileo 源 (rickbrian/repo)
+  # 需要在本仓库配置 secret: REPO_TOKEN (对 rickbrian/repo 有 contents:write 的 PAT)
+  publish-to-repo:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/release') }}
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download rootless package
+        uses: actions/download-artifact@v4
+        with:
+          name: packages-rootless
+          path: incoming
+
+      - name: Push rootless deb to rickbrian/repo
+        env:
+          REPO_TOKEN: ${{ secrets.REPO_TOKEN }}
+        run: |
+          if [ -z "$REPO_TOKEN" ]; then
+            echo "::error::缺少 secret REPO_TOKEN, 无法推送到统一源"
+            exit 1
+          fi
+          sudo apt-get update && sudo apt-get install -y dpkg-dev
+          DEB=$(ls incoming/*.deb 2>/dev/null | head -1)
+          if [ -z "$DEB" ]; then
+            echo "::error::packages-rootless 里没有 .deb"
+            exit 1
+          fi
+          PKG=$(dpkg-deb -f "$DEB" Package)
+          echo "包名: $PKG, 文件: $(basename "$DEB")"
+          git clone "https://x-access-token:${REPO_TOKEN}@github.com/rickbrian/repo.git" repo
+          mkdir -p repo/debs
+          # 移除同包名的旧版本, 再放入新版
+          rm -f repo/debs/${PKG}_*.deb
+          cp "$DEB" repo/debs/
+          cd repo
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "没有变化, 跳过"
+            exit 0
+          fi
+          git commit -m "Update ${PKG} deb ($(basename "$DEB"))"
+          git push
